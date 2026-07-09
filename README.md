@@ -106,25 +106,6 @@ signed token. Every `/api/*` endpoint requires that token as a
 `Authorization: Bearer <token>` header; the frontend attaches it automatically.
 No external auth dependency is used — signing is pure standard library.
 
-## Development
-
-Backend:
-
-```bash
-cd backend
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt   # needs libvirt-dev / libvirt-python on the host
-KVM_ADMIN_PASSWORD=dev uvicorn app.main:app --reload
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
 ## Deployment helper
 
 `deploy.sh` builds the images locally, ships them (plus `docker-compose.yml` and
