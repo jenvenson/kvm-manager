@@ -725,13 +725,13 @@ def delete_snapshot(name: str, snap_name: str):
         try:
             snap.delete(0)
         except libvirt.libvirtError:
-            # 外部快照删除元数据后可能因文件合并失败抛异常
-            # 验证快照是否真的已删除，已删则视为成功
+            # 外部快照删除元数据后可能因文件合并失败抛异常。
+            # 若快照已不存在则视为成功，否则重新抛出原始错误。
             try:
                 d.snapshotLookupByName(snap_name)
-                raise  # 快照仍存在，是真正的失败
             except libvirt.libvirtError:
-                pass   # 快照已不存在，操作实际成功
+                return  # 快照已不存在，删除实际成功
+            raise  # 快照仍存在，是真正的失败
 
 
 def get_console_url(name: str, vnc_host: str, novnc_host: str, novnc_port: int, novnc_path: str = "") -> dict:
