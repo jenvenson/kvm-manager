@@ -1,5 +1,6 @@
 import libvirt
 import os
+import re
 import glob
 import uuid
 import time
@@ -16,6 +17,26 @@ DOMAIN_STATES = {
     3: "paused", 4: "shutdown", 5: "shutoff",
     6: "crashed", 7: "pmsuspended",
 }
+
+# Names that flow into filesystem paths must be strictly constrained to avoid
+# path traversal (e.g. template_name="../../etc" → rmtree of an arbitrary dir).
+_VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# USB vendor/product identifiers are 1-4 hex digits.
+_HEX_ID = re.compile(r"^[0-9a-fA-F]{1,4}$")
+
+
+def _check_name(name: str, kind: str = "name") -> str:
+    if not isinstance(name, str) or ".." in name or not _VALID_NAME.match(name):
+        raise ValueError(f"Invalid {kind}: {name!r}")
+    return name
+
+
+def _check_hex_id(value: str, kind: str = "id") -> str:
+    v = value.replace("0x", "")
+    if not _HEX_ID.match(v):
+        raise ValueError(f"Invalid {kind}: {value!r}")
+    return v
+
 
 
 @contextmanager
@@ -90,6 +111,16 @@ def get_vm_xml(name: str) -> str:
 
 
 def update_vm_xml(name: str, xml: str):
+    # Validate well-formedness and that this is a domain definition before
+    # handing it to libvirt. Full editing capability is intentional (this is
+    # the browser equivalent of `virsh edit`), so element content is not
+    # restricted — only structural validity is checked.
+    try:
+        tree = etree.fromstring(xml.encode() if isinstance(xml, str) else xml)
+    except etree.XMLSyntaxError as e:
+        raise ValueError(f"Malformed XML: {e}")
+    if etree.QName(tree).localname != "domain":
+        raise ValueError("Root element must be <domain>")
     with _conn() as conn:
         conn.defineXML(xml)
 
@@ -238,6 +269,7 @@ def get_disks(name: str) -> List[dict]:
 
 def attach_disk(name: str, path: str | None, size_gb: float | None):
     import subprocess
+    _check_name(name)
     if path is None and size_gb is not None:
         path = f"/var/lib/libvirt/images/{name}-{os.urandom(4).hex()}.qcow2"
         subprocess.run(["qemu-img", "create", "-f", "qcow2", path, f"{size_gb}G"], check=True)
@@ -259,13 +291,11 @@ def attach_disk(name: str, path: str | None, size_gb: float | None):
         fmt = "qcow2"
         if fmt_result.returncode == 0:
             fmt = _json.loads(fmt_result.stdout).get("format", "qcow2")
-        disk_xml = (
-            f"<disk type='file' device='disk'>"
-            f"<driver name='qemu' type='{fmt}'/>"
-            f"<source file='{path}'/>"
-            f"<target dev='{dev}' bus='virtio'/>"
-            f"</disk>"
-        )
+        disk_el = etree.Element("disk", type="file", device="disk")
+        etree.SubElement(disk_el, "driver", name="qemu", type=fmt)
+        etree.SubElement(disk_el, "source", file=path)
+        etree.SubElement(disk_el, "target", dev=dev, bus="virtio")
+        disk_xml = etree.tostring(disk_el, encoding="unicode")
         d.attachDeviceFlags(disk_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
 
 
@@ -381,13 +411,11 @@ def attach_usb_disk(name: str, host_dev: str, persistent: bool) -> str:
         _ensure_virtio_scsi_ctrl(dom)
         xml = etree.fromstring(dom.XMLDesc())
         target_dev = _next_scsi_dev(xml)
-        disk_xml = (
-            f"<disk type='block' device='disk'>"
-            f"<driver name='qemu' type='raw'/>"
-            f"<source dev='{host_dev}'/>"
-            f"<target dev='{target_dev}' bus='scsi'/>"
-            f"</disk>"
-        )
+        disk_el = etree.Element("disk", type="block", device="disk")
+        etree.SubElement(disk_el, "driver", name="qemu", type="raw")
+        etree.SubElement(disk_el, "source", dev=host_dev)
+        etree.SubElement(disk_el, "target", dev=target_dev, bus="scsi")
+        disk_xml = etree.tostring(disk_el, encoding="unicode")
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG if persistent else 0
         if dom.isActive():
             flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
@@ -627,14 +655,18 @@ def get_vm_usb(name: str) -> List[dict]:
 
 
 def attach_usb(name: str, vendor_id: str, product_id: str):
+    vendor_id = _check_hex_id(vendor_id, "vendor_id")
+    product_id = _check_hex_id(product_id, "product_id")
     with _conn() as conn:
         d = conn.lookupByName(name)
-        xml = (
-            f"<hostdev mode='subsystem' type='usb' managed='yes'>"
-            f"<source><vendor id='0x{vendor_id}'/><product id='0x{product_id}'/></source>"
-            f"</hostdev>"
+        hostdev = etree.Element("hostdev", mode="subsystem", type="usb", managed="yes")
+        source = etree.SubElement(hostdev, "source")
+        etree.SubElement(source, "vendor", id=f"0x{vendor_id}")
+        etree.SubElement(source, "product", id=f"0x{product_id}")
+        d.attachDeviceFlags(
+            etree.tostring(hostdev, encoding="unicode"),
+            libvirt.VIR_DOMAIN_AFFECT_CONFIG,
         )
-        d.attachDeviceFlags(xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
 
 
 def detach_usb(name: str, usb_id: str):
@@ -913,15 +945,15 @@ def get_vm_networks(name: str) -> List[dict]:
 
 
 def attach_network(name: str, source: str, source_type: str = "network", model: str = "virtio"):
+    if source_type not in ("network", "bridge"):
+        raise ValueError(f"Invalid source_type: {source_type!r}")
     mac = _random_mac()
     src_attr = "network" if source_type == "network" else "bridge"
-    iface_xml = (
-        f"<interface type='{source_type}'>"
-        f"<mac address='{mac}'/>"
-        f"<source {src_attr}='{source}'/>"
-        f"<model type='{model}'/>"
-        f"</interface>"
-    )
+    iface = etree.Element("interface", type=source_type)
+    etree.SubElement(iface, "mac", address=mac)
+    etree.SubElement(iface, "source", **{src_attr: source})
+    etree.SubElement(iface, "model", type=model)
+    iface_xml = etree.tostring(iface, encoding="unicode")
     with _conn() as conn:
         d = conn.lookupByName(name)
         state, _ = d.state()
@@ -991,6 +1023,8 @@ def list_templates() -> List[dict]:
 
 
 def create_template(vm_name: str, template_name: str, description: str = ""):
+    _check_name(vm_name, "vm_name")
+    _check_name(template_name, "template_name")
     with _conn() as conn:
         d = conn.lookupByName(vm_name)
         state, _ = d.state()
@@ -1030,6 +1064,8 @@ def create_template(vm_name: str, template_name: str, description: str = ""):
 
 
 def clone_template(template_name: str, new_vm_name: str):
+    _check_name(template_name, "template_name")
+    _check_name(new_vm_name, "new_vm_name")
     manifest = _load_json("templates")
     if template_name not in manifest:
         raise ValueError(f"Template {template_name!r} not found")
@@ -1065,6 +1101,7 @@ def clone_template(template_name: str, new_vm_name: str):
 
 
 def delete_template(template_name: str):
+    _check_name(template_name, "template_name")
     manifest = _load_json("templates")
     if template_name not in manifest:
         raise ValueError(f"Template {template_name!r} not found")

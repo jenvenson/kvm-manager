@@ -62,7 +62,12 @@ class XmlBody(BaseModel):
 
 @router.put("/vms/{name}/xml")
 def update_vm_xml(name: str, body: XmlBody):
-    _wrap(svc.update_vm_xml, name, body.xml)
+    try:
+        svc.update_vm_xml(name, body.xml)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except libvirt.libvirtError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"status": "updated"}
 
 
