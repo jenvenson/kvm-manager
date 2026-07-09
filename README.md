@@ -58,6 +58,13 @@ a noVNC console so you can manage guests entirely from the browser.
 
 ## Quick start
 
+There are two ways to deploy, pick one based on where you build:
+
+- **On the KVM host itself** → use `./quickstart.sh` (below). Builds and starts
+  the stack locally.
+- **From a separate dev machine** → use [`./deploy.sh`](#deployment-helper). Builds
+  images locally and ships them to a remote host over SSH.
+
 On the KVM host, the fastest path is the bootstrap script — it prepares `.env`
 (generating a signing secret and, if you don't supply one, an admin password),
 detects the host's `libvirt` group GID, then builds and starts the stack:
@@ -107,6 +114,10 @@ signed token. Every `/api/*` endpoint requires that token as a
 No external auth dependency is used — signing is pure standard library.
 
 ## Deployment helper
+
+Use this when the target server has no source checkout or build tools and you'd
+rather push ready-made images to it than build there. If you deploy directly on
+the KVM host, use [`./quickstart.sh`](#quick-start) instead — you don't need this.
 
 `deploy.sh` builds the images locally, ships them (plus `docker-compose.yml` and
 your local `.env`) to a remote host over SSH, aligns `LIBVIRT_GID` with the
