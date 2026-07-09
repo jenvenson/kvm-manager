@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from urllib.parse import quote
@@ -776,16 +777,19 @@ def get_console_url(name: str, vnc_host: str, novnc_host: str, novnc_port: int, 
     token_dir = os.environ.get("VNC_TOKEN_DIR", "/vnc-tokens")
     os.makedirs(token_dir, exist_ok=True)
     token_file = os.path.join(token_dir, "tokens.cfg")
-    # Keep only the last 100 tokens to prevent unbounded growth
-    try:
-        with open(token_file, "r") as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        lines = []
-    lines = lines[-99:] if len(lines) >= 100 else lines
-    lines.append(f"{token}: {vnc_host}:{port}\n")
-    with open(token_file, "w") as f:
-        f.writelines(lines)
+    # Keep only the last 100 tokens to prevent unbounded growth. The
+    # read-modify-write must be atomic: concurrent console requests would
+    # otherwise clobber each other's tokens, silently breaking VNC.
+    with _token_lock:
+        try:
+            with open(token_file, "r") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+        lines = lines[-99:] if len(lines) >= 100 else lines
+        lines.append(f"{token}: {vnc_host}:{port}\n")
+        with open(token_file, "w") as f:
+            f.writelines(lines)
 
     if novnc_path:
         base = f"http://{novnc_host}:{novnc_port}/{novnc_path}"
@@ -799,8 +803,13 @@ def get_console_url(name: str, vnc_host: str, novnc_host: str, novnc_port: int, 
     }
 
 
+# Serialises the read-modify-write of the shared VNC token file.
+_token_lock = threading.Lock()
+
 # In-memory cache for CPU delta calculation: name -> (cpu_time_ns, wall_time)
 _cpu_cache: dict = {}
+# Guards the read-compute-write sequence on _cpu_cache below.
+_cpu_lock = threading.Lock()
 
 
 def get_vm_stats(name: str) -> dict:
@@ -825,13 +834,14 @@ def get_vm_stats(name: str) -> dict:
             cpu_stats = d.getCPUStats(True)  # aggregate across all vCPUs
             cpu_time = cpu_stats[0].get("cpu_time", 0)
             now = time.time()
-            if name in _cpu_cache:
-                prev_cpu, prev_wall = _cpu_cache[name]
-                wall_ns = (now - prev_wall) * 1e9
-                vcpus = int(etree.fromstring(d.XMLDesc()).findtext("vcpu") or 1)
-                if wall_ns > 0:
-                    cpu_pct = max(0.0, min(100.0, (cpu_time - prev_cpu) / (wall_ns * vcpus) * 100))
-            _cpu_cache[name] = (cpu_time, now)
+            with _cpu_lock:
+                if name in _cpu_cache:
+                    prev_cpu, prev_wall = _cpu_cache[name]
+                    wall_ns = (now - prev_wall) * 1e9
+                    vcpus = int(etree.fromstring(d.XMLDesc()).findtext("vcpu") or 1)
+                    if wall_ns > 0:
+                        cpu_pct = max(0.0, min(100.0, (cpu_time - prev_cpu) / (wall_ns * vcpus) * 100))
+                _cpu_cache[name] = (cpu_time, now)
         except libvirt.libvirtError:
             pass
 
@@ -975,19 +985,26 @@ def _data_dir() -> str:
     return d
 
 
+# Reentrant so a caller can hold it across a whole load-modify-save sequence
+# while _load_json/_save_json re-acquire it internally for standalone reads.
+_json_lock = threading.RLock()
+
+
 def _load_json(name: str) -> dict:
     path = os.path.join(_data_dir(), f"{name}.json")
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (FileNotFoundError, ValueError):
-        return {}
+    with _json_lock:
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (FileNotFoundError, ValueError):
+            return {}
 
 
 def _save_json(name: str, data: dict):
     path = os.path.join(_data_dir(), f"{name}.json")
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    with _json_lock:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def get_protection_config() -> dict:
@@ -995,12 +1012,13 @@ def get_protection_config() -> dict:
 
 
 def set_vm_protection(vm_name: str, level: str | None, note: str = ""):
-    config = _load_json("protection")
-    if level is None:
-        config.pop(vm_name, None)
-    else:
-        config[vm_name] = {"level": level, "note": note}
-    _save_json("protection", config)
+    with _json_lock:
+        config = _load_json("protection")
+        if level is None:
+            config.pop(vm_name, None)
+        else:
+            config[vm_name] = {"level": level, "note": note}
+        _save_json("protection", config)
 
 
 def list_templates() -> List[dict]:
@@ -1037,19 +1055,20 @@ def create_template(vm_name: str, template_name: str, description: str = ""):
         shutil.copy2(orig, dest)
         disk_paths.append({"original": orig, "copy": dest})
 
-    manifest = _load_json("templates")
-    manifest[template_name] = {
-        "name": template_name,
-        "description": description,
-        "source_vm": vm_name,
-        "created_at": datetime.now().isoformat(),
-        "xml": xml_str,
-        "disks": disk_paths,
-        "size_gb": round(
-            sum(os.path.getsize(d["copy"]) for d in disk_paths) / (1024 ** 3), 2
-        ),
-    }
-    _save_json("templates", manifest)
+    with _json_lock:
+        manifest = _load_json("templates")
+        manifest[template_name] = {
+            "name": template_name,
+            "description": description,
+            "source_vm": vm_name,
+            "created_at": datetime.now().isoformat(),
+            "xml": xml_str,
+            "disks": disk_paths,
+            "size_gb": round(
+                sum(os.path.getsize(d["copy"]) for d in disk_paths) / (1024 ** 3), 2
+            ),
+        }
+        _save_json("templates", manifest)
 
 
 def clone_template(template_name: str, new_vm_name: str):
@@ -1091,14 +1110,15 @@ def clone_template(template_name: str, new_vm_name: str):
 
 def delete_template(template_name: str):
     _check_name(template_name, "template_name")
-    manifest = _load_json("templates")
-    if template_name not in manifest:
-        raise ValueError(f"Template {template_name!r} not found")
-    tpl_dir = os.path.join(_data_dir(), "templates", template_name)
-    if os.path.exists(tpl_dir):
-        shutil.rmtree(tpl_dir)
-    del manifest[template_name]
-    _save_json("templates", manifest)
+    with _json_lock:
+        manifest = _load_json("templates")
+        if template_name not in manifest:
+            raise ValueError(f"Template {template_name!r} not found")
+        tpl_dir = os.path.join(_data_dir(), "templates", template_name)
+        if os.path.exists(tpl_dir):
+            shutil.rmtree(tpl_dir)
+        del manifest[template_name]
+        _save_json("templates", manifest)
 
 
 def get_host_info() -> dict:
