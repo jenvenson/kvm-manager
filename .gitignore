@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+node_modules/
+frontend/dist/
+# compiled TS output must never be committed alongside sources
+frontend/src/**/*.js
+.env
+.env.*
+!.env.example
+vnc-tokens/*.cfg

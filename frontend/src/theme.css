@@ -1,0 +1,179 @@
+:root {
+  --bg-primary: #0e1525;
+  --bg-secondary: #131d2e;
+  --bg-card: rgba(18, 28, 48, 0.95);
+  --color-cyan: #00d4ff;
+  --color-purple: #7b2fff;
+  --color-green: #00ff88;
+  --color-red: #ff4d6d;
+  --color-yellow: #ffcc00;
+  --color-text: #ddeeff;
+  --color-text-dim: #6a85a8;
+  --glow-cyan: 0 0 12px rgba(0, 212, 255, 0.2);
+  --glow-cyan-strong: 0 0 20px rgba(0, 212, 255, 0.45);
+  --glow-green: 0 0 10px rgba(0, 255, 136, 0.4);
+  --glow-red: 0 0 10px rgba(255, 77, 109, 0.4);
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background-color: var(--bg-primary) !important;
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  color: var(--color-text) !important;
+  font-size: 15px;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: rgba(0, 212, 255, 0.3); border-radius: 3px; }
+
+/* ── Cyberpunk card ── */
+.cyber-card .ant-card {
+  background: var(--bg-card) !important;
+  border: 1px solid rgba(0, 212, 255, 0.2) !important;
+  box-shadow: var(--glow-cyan) !important;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.cyber-card .ant-card:hover {
+  border-color: rgba(0, 212, 255, 0.5) !important;
+  box-shadow: var(--glow-cyan-strong) !important;
+}
+.cyber-card .ant-card-head {
+  border-bottom: 1px solid rgba(0, 212, 255, 0.15) !important;
+  background: transparent !important;
+}
+
+/* ── Status pulse animations ── */
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.5); }
+  50%       { box-shadow: 0 0 16px rgba(0, 255, 136, 0.9); }
+}
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+.vm-running-glow { animation: pulse-green 2.5s ease-in-out infinite; }
+.vm-critical-border { border-left: 3px solid var(--color-red) !important; }
+
+/* ── Monospace for tech data ── */
+.mono { font-family: var(--font-mono) !important; font-size: 12px; }
+
+/* ── Sidebar ── */
+.cyber-sider {
+  background: linear-gradient(180deg, #0a0f1a 0%, #0e1525 100%) !important;
+  border-right: 1px solid rgba(0, 212, 255, 0.12) !important;
+}
+.cyber-sider .ant-menu { background: transparent !important; }
+.cyber-sider .ant-menu-item-selected {
+  background: rgba(0, 212, 255, 0.08) !important;
+  border-left: 3px solid var(--color-cyan) !important;
+}
+.cyber-sider .ant-menu-item-selected .ant-menu-title-content { color: var(--color-cyan) !important; }
+
+/* ── Logo area with scan line ── */
+.logo-area {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+@keyframes scanline {
+  0%   { transform: translateY(-100%); opacity: 0.8; }
+  100% { transform: translateY(300%); opacity: 0; }
+}
+.logo-area::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-cyan), transparent);
+  animation: scanline 4s linear infinite;
+}
+
+/* ── Gauge / chart wrapper ── */
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--glow-cyan);
+}
+.stat-label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-cyan);
+}
+
+/* ── Mini progress bar in VM card ── */
+.mini-bar-track {
+  background: rgba(0, 212, 255, 0.1);
+  border-radius: 2px;
+  height: 4px;
+  margin-top: 2px;
+  overflow: hidden;
+}
+.mini-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-cyan), var(--color-purple));
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ── Table ── */
+.ant-table-wrapper .ant-table {
+  background: var(--bg-card) !important;
+}
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: rgba(0, 212, 255, 0.05) !important;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.2) !important;
+  color: var(--color-cyan) !important;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ── Tag overrides ── */
+.ant-tag { font-family: var(--font-mono) !important; }
+
+/* ── Button glow on primary ── */
+.ant-btn-primary {
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3) !important;
+}
+.ant-btn-primary:hover {
+  box-shadow: 0 0 16px rgba(0, 212, 255, 0.5) !important;
+}
+
+/* ── Modal ── */
+.ant-modal-content {
+  background: var(--bg-secondary) !important;
+  border: 1px solid rgba(0, 212, 255, 0.2) !important;
+}
+.ant-modal-header {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.15) !important;
+}
+
+/* ── Recharts legend text ── */
+.recharts-legend-item-text {
+  color: #c8d0e0 !important;
+}

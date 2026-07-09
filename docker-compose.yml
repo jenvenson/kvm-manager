@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  kvm-app:
+    image: kvm-app
+    build: .
+    ports:
+      - "18080:80"
+    volumes:
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+      - /var/lib/libvirt/images:/var/lib/libvirt/images
+      - vnc_tokens:/vnc-tokens
+      - kvm_data:/app/data
+    group_add:
+      - "121"
+    environment:
+      - VNC_TOKEN_DIR=/vnc-tokens
+      - VNC_HOST=127.0.0.1
+      - NOVNC_HOST=${NOVNC_HOST:-10.70.70.172}
+      - NOVNC_PORT=${NOVNC_PORT:-80}
+      - NOVNC_PATH=${NOVNC_PATH:-kvm/novnc}
+      - DATA_DIR=/app/data
+      - KVM_ADMIN_USER=${KVM_ADMIN_USER:-admin}
+      - KVM_ADMIN_PASSWORD=${KVM_ADMIN_PASSWORD:?KVM_ADMIN_PASSWORD must be set}
+      - KVM_AUTH_SECRET=${KVM_AUTH_SECRET:-}
+      - KVM_TOKEN_TTL_HOURS=${KVM_TOKEN_TTL_HOURS:-168}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  kvm-novnc:
+    image: kvm-novnc
+    build: ./novnc
+    network_mode: host
+    volumes:
+      - vnc_tokens:/vnc-tokens
+    restart: unless-stopped
+
+volumes:
+  vnc_tokens:
+  kvm_data:
