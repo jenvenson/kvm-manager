@@ -1,5 +1,7 @@
 # KVM Manager
 
+English | [简体中文](README.zh-CN.md)
+
 A web-based management panel for KVM / libvirt virtual machines. It wraps the
 libvirt API in a FastAPI backend and a React (Ant Design) frontend, and embeds
 a noVNC console so you can manage guests entirely from the browser.
