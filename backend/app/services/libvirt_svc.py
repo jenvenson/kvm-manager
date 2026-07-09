@@ -1,13 +1,17 @@
 import libvirt
+import base64
+import glob
+import json
 import os
 import re
-import glob
-import uuid
-import time
-from urllib.parse import quote
 import shutil
+import subprocess
+import time
+import uuid
+from urllib.parse import quote
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 from lxml import etree
@@ -268,7 +272,6 @@ def get_disks(name: str) -> List[dict]:
 
 
 def attach_disk(name: str, path: str | None, size_gb: float | None):
-    import subprocess
     _check_name(name)
     if path is None and size_gb is not None:
         path = f"/var/lib/libvirt/images/{name}-{os.urandom(4).hex()}.qcow2"
@@ -282,15 +285,13 @@ def attach_disk(name: str, path: str | None, size_gb: float | None):
             if disk.find("target") is not None
         }
         dev = next(f"vd{c}" for c in "bcdefghijklmnop" if f"vd{c}" not in used)
-        import subprocess as _sp
-        fmt_result = _sp.run(
+        fmt_result = subprocess.run(
             ["qemu-img", "info", "--output=json", path],
             capture_output=True, text=True,
         )
-        import json as _json
         fmt = "qcow2"
         if fmt_result.returncode == 0:
-            fmt = _json.loads(fmt_result.stdout).get("format", "qcow2")
+            fmt = json.loads(fmt_result.stdout).get("format", "qcow2")
         disk_el = etree.Element("disk", type="file", device="disk")
         etree.SubElement(disk_el, "driver", name="qemu", type=fmt)
         etree.SubElement(disk_el, "source", file=path)
@@ -347,8 +348,6 @@ def _next_scsi_dev(xml_tree) -> str:
 
 def _ga_exec(dom, path: str, args: list[str]) -> tuple[bool, str]:
     """Run a command inside VM via GA. Returns (ok, stdout_decoded)."""
-    import json, time, base64, subprocess
-
     cmd_exec = json.dumps({
         "execute": "guest-exec",
         "arguments": {"path": path, "arg": args, "capture-output": True},
@@ -385,8 +384,6 @@ def _ga_exec(dom, path: str, args: list[str]) -> tuple[bool, str]:
 
 def _ga_find_vm_dev(dom, host_dev: str) -> str:
     """Use lsblk inside VM to find which /dev/sdX matches the host device size."""
-    import os
-    from pathlib import Path
     try:
         host_bytes = int(Path(f"/sys/block/{os.path.basename(host_dev)}/size").read_text().strip()) * 512
     except Exception:
@@ -394,9 +391,8 @@ def _ga_find_vm_dev(dom, host_dev: str) -> str:
     ok, out = _ga_exec(dom, "/bin/lsblk", ["-J", "-b", "-d", "-o", "NAME,SIZE,TYPE"])
     if not ok or not out:
         return ""
-    import json as _json
     try:
-        devices = _json.loads(out).get("blockdevices", [])
+        devices = json.loads(out).get("blockdevices", [])
         for d in devices:
             if d.get("type") == "disk" and int(d.get("size", 0)) == host_bytes:
                 return d["name"]
@@ -487,7 +483,6 @@ def detach_usb_disk(name: str, dev: str, force: bool = False) -> dict:
 
 
 def get_host_usb() -> List[dict]:
-    from pathlib import Path
     devices = []
     for vendor_path in glob.glob("/sys/bus/usb/devices/*/idVendor"):
         base = Path(vendor_path).parent
@@ -503,7 +498,6 @@ def get_host_usb() -> List[dict]:
 
 
 def _is_usb_dev(dev_name: str) -> bool:
-    from pathlib import Path
     sys_dev = Path(f"/sys/block/{dev_name}/device")
     if not sys_dev.exists():
         return False
@@ -532,7 +526,6 @@ def _get_all_attached_block_devs(conn) -> dict:
 
 
 def get_host_usb_disks() -> List[dict]:
-    from pathlib import Path
     results = []
     sys_block = Path("/sys/block")
     if not sys_block.exists():
@@ -570,7 +563,6 @@ def get_host_usb_disks() -> List[dict]:
 
 
 def get_vm_usb_disks(name: str) -> List[dict]:
-    from pathlib import Path
 
     def _dev_exists(dev_name: str) -> bool:
         return Path(f"/sys/block/{dev_name}").exists()
@@ -598,9 +590,8 @@ def get_vm_usb_disks(name: str) -> List[dict]:
         if d.isActive():
             ok, out = _ga_exec(d, "/bin/lsblk", ["-J", "-b", "-d", "-o", "NAME,SIZE,TYPE"])
             if ok and out:
-                import json as _json
                 try:
-                    for entry in _json.loads(out).get("blockdevices", []):
+                    for entry in json.loads(out).get("blockdevices", []):
                         if entry.get("type") == "disk":
                             sz = int(entry.get("size", 0))
                             if sz > 0:
@@ -778,7 +769,7 @@ def get_console_url(name: str, vnc_host: str, novnc_host: str, novnc_port: int, 
                 if running:
                     try:
                         d.updateDeviceFlags(g_str, libvirt.VIR_DOMAIN_AFFECT_LIVE)
-                    except Exception:
+                    except libvirt.libvirtError:
                         pass
 
     token = uuid.uuid4().hex
@@ -987,7 +978,6 @@ def _data_dir() -> str:
 def _load_json(name: str) -> dict:
     path = os.path.join(_data_dir(), f"{name}.json")
     try:
-        import json
         with open(path) as f:
             return json.load(f)
     except (FileNotFoundError, ValueError):
@@ -995,7 +985,6 @@ def _load_json(name: str) -> dict:
 
 
 def _save_json(name: str, data: dict):
-    import json
     path = os.path.join(_data_dir(), f"{name}.json")
     with open(path, "w") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
