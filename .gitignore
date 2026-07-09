@@ -10,3 +10,5 @@ frontend/src/**/*.js
 .env.*
 !.env.example
 vnc-tokens/*.cfg
+# internal design/planning drafts — kept locally, not published
+docs/plans/
