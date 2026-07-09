@@ -1,0 +1,12 @@
+**/node_modules
+frontend/dist
+**/__pycache__
+**/*.py[cod]
+.venv
+.pytest_cache
+.env
+.env.*
+!.env.example
+vnc-tokens/*.cfg
+.git
+docs/plans
