@@ -58,9 +58,21 @@ a noVNC console so you can manage guests entirely from the browser.
 
 ## Quick start
 
+On the KVM host, the fastest path is the bootstrap script — it prepares `.env`
+(generating a signing secret and, if you don't supply one, an admin password),
+detects the host's `libvirt` group GID, then builds and starts the stack:
+
+```bash
+./quickstart.sh
+```
+
+It's safe to re-run: existing `.env` values are kept, only missing ones are
+filled in. Prefer to do it by hand? The manual equivalent is:
+
 ```bash
 cp .env.example .env
-# edit .env — KVM_ADMIN_PASSWORD is required, set KVM_AUTH_SECRET too
+# edit .env — KVM_ADMIN_PASSWORD is required, set KVM_AUTH_SECRET too, and set
+# LIBVIRT_GID to your host's libvirt GID (getent group libvirt | cut -d: -f3)
 docker compose up -d
 ```
 
@@ -115,8 +127,10 @@ npm run dev
 
 ## Deployment helper
 
-`deploy.sh` builds the images locally, ships them to a remote host over SSH and
-runs `docker compose up -d` there. Override the target with flags or env vars:
+`deploy.sh` builds the images locally, ships them (plus `docker-compose.yml` and
+your local `.env`) to a remote host over SSH, aligns `LIBVIRT_GID` with the
+remote host's libvirt group, and runs `docker compose up -d` there. It requires
+a local `.env` to exist first. Override the target with flags or env vars:
 
 ```bash
 ./deploy.sh --host 192.168.1.10 --user root

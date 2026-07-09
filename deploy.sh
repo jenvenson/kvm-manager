@@ -26,6 +26,13 @@ cd "$SCRIPT_DIR"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
+# ── Preflight: the remote stack needs a .env (KVM_ADMIN_PASSWORD is required) ──
+if [[ ! -f .env ]]; then
+  echo "ERROR: .env not found. Create it first (cp .env.example .env, or run" >&2
+  echo "       ./quickstart.sh locally) — the remote 'docker compose up' needs it." >&2
+  exit 1
+fi
+
 # ── Step 1: Build images ──────────────────────────────────────────────────────
 log "Building kvm-app image..."
 docker build -t kvm-app .
@@ -43,6 +50,7 @@ log "Uploading images to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR} ..."
 ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p ${REMOTE_DIR}"
 scp -P "${REMOTE_PORT}" /tmp/kvm-deploy.tar.gz "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/kvm-deploy.tar.gz"
 scp -P "${REMOTE_PORT}" docker-compose.yml      "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/docker-compose.yml"
+scp -P "${REMOTE_PORT}" .env                     "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/.env"
 
 # ── Step 4: Deploy on server ──────────────────────────────────────────────────
 log "Deploying on server..."
@@ -52,6 +60,19 @@ cd ${REMOTE_DIR}
 
 echo "[remote] Loading images..."
 docker load < kvm-deploy.tar.gz
+
+echo "[remote] Aligning LIBVIRT_GID with this host's libvirt group..."
+GID=\$(getent group libvirt | cut -d: -f3 || true)
+if [ -n "\$GID" ]; then
+  if grep -qE '^LIBVIRT_GID=' .env; then
+    sed -i "s/^LIBVIRT_GID=.*/LIBVIRT_GID=\$GID/" .env
+  else
+    echo "LIBVIRT_GID=\$GID" >> .env
+  fi
+  echo "[remote] LIBVIRT_GID=\$GID"
+else
+  echo "[remote] WARN: no 'libvirt' group found; leaving LIBVIRT_GID as shipped."
+fi
 
 echo "[remote] Stopping existing containers..."
 docker compose down || true

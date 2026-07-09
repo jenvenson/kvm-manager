@@ -12,7 +12,7 @@ services:
       - vnc_tokens:/vnc-tokens
       - kvm_data:/app/data
     group_add:
-      - "121"
+      - "${LIBVIRT_GID:-121}"
     environment:
       - VNC_TOKEN_DIR=/vnc-tokens
       - VNC_HOST=127.0.0.1
