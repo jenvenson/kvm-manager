@@ -5,10 +5,6 @@ set -euo pipefail
 
 # ── Defaults (override with flags or env vars) ────────────────────────────────
 REMOTE_HOST="${KVM_HOST:-}"
-if [[ -z "$REMOTE_HOST" ]]; then
-  echo "ERROR: target host is not set. Use --host <ip> or set KVM_HOST=<ip>." >&2
-  exit 1
-fi
 REMOTE_USER="${KVM_USER:-root}"
 REMOTE_PORT="${KVM_PORT:-22}"
 REMOTE_DIR="${KVM_REMOTE_DIR:-/opt/kvm}"
@@ -24,6 +20,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+
+if [[ -z "$REMOTE_HOST" ]]; then
+  echo "ERROR: target host is not set. Use --host <ip> or set KVM_HOST=<ip>." >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -62,6 +63,18 @@ ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" bash -s <<REMOTE
 set -euo pipefail
 cd ${REMOTE_DIR}
 
+# Prefer the Compose v2 plugin ("docker compose"); fall back to the standalone
+# v1 binary ("docker-compose") if the plugin is not installed.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  echo "[remote] ERROR: neither 'docker compose' nor 'docker-compose' is available." >&2
+  exit 1
+fi
+echo "[remote] Using compose command: \$COMPOSE"
+
 echo "[remote] Loading images..."
 docker load < kvm-deploy.tar.gz
 
@@ -79,14 +92,14 @@ else
 fi
 
 echo "[remote] Stopping existing containers..."
-docker compose down || true
+\$COMPOSE down || true
 
 echo "[remote] Starting containers..."
-docker compose up -d
+\$COMPOSE up -d
 
 echo "[remote] Waiting for kvm-app to be healthy..."
 for i in \$(seq 1 30); do
-  if docker compose ps kvm-app | grep -q "Up"; then
+  if \$COMPOSE ps kvm-app | grep -q "Up"; then
     echo "[remote] kvm-app is up"
     break
   fi
@@ -94,7 +107,7 @@ for i in \$(seq 1 30); do
 done
 
 echo "[remote] Container status:"
-docker compose ps
+\$COMPOSE ps
 
 echo "[remote] Cleaning up archive..."
 rm -f kvm-deploy.tar.gz

@@ -10,5 +10,7 @@ frontend/src/**/*.js
 .env.*
 !.env.example
 vnc-tokens/*.cfg
+# local Linux docker-compose binary staged for deploy.sh uploads
+/docker-compose
 # internal design/planning drafts — kept locally, not published
 docs/plans/
