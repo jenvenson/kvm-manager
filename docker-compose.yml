@@ -12,11 +12,11 @@ services:
       - vnc_tokens:/vnc-tokens
       - kvm_data:/app/data
     group_add:
-      - "${LIBVIRT_GID:-121}"
+      - "${LIBVIRT_GID:?LIBVIRT_GID must be set (run quickstart.sh or: getent group libvirt | cut -d: -f3)}"
     environment:
       - VNC_TOKEN_DIR=/vnc-tokens
       - VNC_HOST=127.0.0.1
-      - NOVNC_HOST=${NOVNC_HOST:-10.70.70.172}
+      - NOVNC_HOST=${NOVNC_HOST:?NOVNC_HOST must be set (the KVM host's IP or hostname)}
       - NOVNC_PORT=${NOVNC_PORT:-80}
       - NOVNC_PATH=${NOVNC_PATH:-kvm/novnc}
       - DATA_DIR=/app/data
