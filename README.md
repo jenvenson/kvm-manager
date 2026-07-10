@@ -20,7 +20,7 @@ a noVNC console so you can manage guests entirely from the browser.
 - USB device passthrough and USB block-disk passthrough
 - Snapshots: create (disk-only), revert, delete
 - Virtual networks: attach / detach interfaces
-- VNC console in the browser via noVNC / websockify
+- VNC console in the browser via noVNC / websockify (guests must expose VNC, not SPICE — see [VM console](#vm-console-vnc-only))
 - QEMU guest-agent info (IPs, OS, hostname)
 - Templates: capture a powered-off VM and clone new VMs from it
 - Raw domain XML editor
@@ -57,6 +57,9 @@ a noVNC console so you can manage guests entirely from the browser.
 - The container needs access to the libvirt socket and the libvirt group; adjust
   `group_add` in `docker-compose.yml` to your host's `libvirt` GID
   (`getent group libvirt`).
+- Guests you intend to open in the browser console must have a
+  `<graphics type='vnc'>` device — SPICE-only guests are not supported
+  (see [VM console](#vm-console-vnc-only)).
 
 ## Quick start
 
@@ -107,6 +110,39 @@ Generate a signing secret:
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+## VM console (VNC only)
+
+The browser console works **only for guests that expose a VNC graphics device**.
+The backend hands websockify a VNC (RFB) endpoint and the browser runs noVNC —
+**SPICE is not supported**. A guest configured with `<graphics type='spice'>`
+(or with no graphics device at all) cannot be opened from the web UI.
+
+**Symptom** — clicking *Console* shows "获取控制台失败" / *Failed to open
+console*, and the backend logs a `400` on `GET /api/vms/<name>/console`. The
+backend returns this whenever the domain XML has no `<graphics type='vnc'>`
+device.
+
+**Check a guest's graphics type:**
+
+```bash
+virsh dumpxml <vm-name> | grep '<graphics'
+```
+
+**Add a VNC device.** libvirt allows one graphics device of each type, so you
+can keep an existing SPICE device and add VNC alongside it. Run
+`virsh edit <vm-name>` and add inside `<devices>`:
+
+```xml
+<graphics type='vnc' port='-1' autoport='yes' listen='0.0.0.0'/>
+```
+
+Graphics devices cannot be hot-plugged, so **power-cycle the guest** for the
+change to take effect. On the first console request the backend also rewrites
+the VNC `listen` address to `0.0.0.0` so websockify (running with host
+networking) can reach the port. Because the raw VNC port (5900+) is then open on
+all host interfaces, keep it blocked from untrusted networks at the firewall —
+only the reverse-proxy port (usually 80/443) should be publicly reachable.
 
 ## Authentication
 
