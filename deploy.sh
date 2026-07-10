@@ -4,7 +4,11 @@
 set -euo pipefail
 
 # ── Defaults (override with flags or env vars) ────────────────────────────────
-REMOTE_HOST="${KVM_HOST:-10.70.70.172}"
+REMOTE_HOST="${KVM_HOST:-}"
+if [[ -z "$REMOTE_HOST" ]]; then
+  echo "ERROR: target host is not set. Use --host <ip> or set KVM_HOST=<ip>." >&2
+  exit 1
+fi
 REMOTE_USER="${KVM_USER:-root}"
 REMOTE_PORT="${KVM_PORT:-22}"
 REMOTE_DIR="${KVM_REMOTE_DIR:-/opt/kvm}"
