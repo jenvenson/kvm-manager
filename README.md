@@ -117,18 +117,63 @@ No external auth dependency is used — signing is pure standard library.
 
 ## Deployment helper
 
-Use this when the target server has no source checkout or build tools and you'd
-rather push ready-made images to it than build there. If you deploy directly on
-the KVM host, use [`./quickstart.sh`](#quick-start) instead — you don't need this.
+Use this when you build on a dev machine and push ready-made images to a
+separate KVM host over SSH. If you are *already on* the KVM host, use
+[`./quickstart.sh`](#quick-start) instead.
 
-`deploy.sh` builds the images locally, ships them (plus `docker-compose.yml` and
-your local `.env`) to a remote host over SSH, aligns `LIBVIRT_GID` with the
-remote host's libvirt group, and runs `docker compose up -d` there. It requires
-a local `.env` to exist first. Override the target with flags or env vars:
+`deploy.sh` builds both Docker images locally, ships them (plus
+`docker-compose.yml` and your `.env`) to the remote host over SSH, aligns
+`LIBVIRT_GID` with the remote host's libvirt group, then runs
+`docker compose up -d` there.
+
+**Prerequisites** (on the dev machine):
+
+- Docker installed and running locally
+- SSH access to the KVM host (key-based auth recommended; password auth also works)
+- A local `.env` file — the remote stack needs it for `KVM_ADMIN_PASSWORD` etc.
+
+**Step 1 — create `.env` on the dev machine:**
 
 ```bash
-./deploy.sh --host 192.168.1.10 --user root
+cp .env.example .env
 ```
+
+Edit `.env` and set at minimum:
+
+```
+KVM_ADMIN_PASSWORD=your-strong-password
+NOVNC_HOST=<KVM host IP or hostname reachable from the browser>
+```
+
+**Step 2 — run deploy:**
+
+```bash
+./deploy.sh --host <KVM host IP> --user <ssh user>
+```
+
+Full list of flags (all optional except `--host`):
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--host HOST` | `KVM_HOST` | *(required)* | KVM host IP or hostname |
+| `--user USER` | `KVM_USER` | `root` | SSH user |
+| `--port PORT` | `KVM_PORT` | `22` | SSH port |
+| `--remote-dir DIR` | `KVM_REMOTE_DIR` | `/opt/kvm` | Directory on the remote host |
+
+**Example:**
+
+```bash
+./deploy.sh --host 192.168.1.10 --user ubuntu
+```
+
+Or export once and reuse:
+
+```bash
+export KVM_HOST=192.168.1.10 KVM_USER=ubuntu
+./deploy.sh
+```
+
+After the script finishes, open `http://<KVM host IP>/kvm/` in your browser.
 
 ## License
 

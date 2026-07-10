@@ -114,18 +114,61 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ## 部署辅助脚本
 
-当目标服务器上没有源码检出或构建工具，而你更愿意把现成的镜像推送过去、而不是
-在那里构建时，使用这个脚本。如果你直接在 KVM 宿主机上部署，请改用
-[`./quickstart.sh`](#快速开始) —— 你不需要这个脚本。
+适用场景：在开发机上构建，通过 SSH 把镜像推送到独立的 KVM 宿主机。如果你
+*已经在* KVM 宿主机上操作，请改用 [`./quickstart.sh`](#快速开始)，不需要这个脚本。
 
-`deploy.sh` 会在本地构建镜像，通过 SSH 把它们（以及 `docker-compose.yml` 和你
-本地的 `.env`）传输到远程宿主机，让 `LIBVIRT_GID` 与远程宿主机的 libvirt 组对齐，
-并在那里执行 `docker compose up -d`。它要求本地先存在一个 `.env`。可以用参数或
-环境变量覆盖目标：
+`deploy.sh` 会在本地构建两个 Docker 镜像，通过 SSH 把它们（以及
+`docker-compose.yml` 和你的 `.env`）传输到远程宿主机，自动对齐远程宿主机的
+`LIBVIRT_GID`，然后在那里执行 `docker compose up -d`。
+
+**前置条件**（在开发机上）：
+
+- 本地已安装并运行 Docker
+- 可以 SSH 登录 KVM 宿主机（推荐密钥认证，密码认证也可以）
+- 本地已有 `.env` 文件 —— 远程 stack 需要它来读取 `KVM_ADMIN_PASSWORD` 等变量
+
+**第一步 —— 在开发机上创建 `.env`：**
 
 ```bash
-./deploy.sh --host 192.168.1.10 --user root
+cp .env.example .env
 ```
+
+编辑 `.env`，至少设置以下两项：
+
+```
+KVM_ADMIN_PASSWORD=你的强密码
+NOVNC_HOST=<浏览器可访问的 KVM 宿主机 IP 或域名>
+```
+
+**第二步 —— 执行部署：**
+
+```bash
+./deploy.sh --host <KVM 宿主机 IP> --user <SSH 用户名>
+```
+
+所有参数（除 `--host` 外均可选）：
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+|------|---------|--------|------|
+| `--host HOST` | `KVM_HOST` | *(必填)* | KVM 宿主机 IP 或域名 |
+| `--user USER` | `KVM_USER` | `root` | SSH 用户名 |
+| `--port PORT` | `KVM_PORT` | `22` | SSH 端口 |
+| `--remote-dir DIR` | `KVM_REMOTE_DIR` | `/opt/kvm` | 远程宿主机上的部署目录 |
+
+**示例：**
+
+```bash
+./deploy.sh --host 192.168.1.10 --user ubuntu
+```
+
+或导出环境变量后直接运行：
+
+```bash
+export KVM_HOST=192.168.1.10 KVM_USER=ubuntu
+./deploy.sh
+```
+
+脚本执行完毕后，在浏览器中打开 `http://<KVM 宿主机 IP>/kvm/`。
 
 ## 许可证
 
