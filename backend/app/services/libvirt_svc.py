@@ -43,6 +43,16 @@ def _check_hex_id(value: str, kind: str = "id") -> str:
     return v
 
 
+def _check_path(path: str) -> str:
+    if not isinstance(path, str):
+        raise ValueError(f"disk path must be a string, got {type(path).__name__!r}")
+    if not os.path.isabs(path):
+        raise ValueError(f"disk path must be absolute: {path!r}")
+    if ".." in path.split(os.sep):
+        raise ValueError(f"disk path must not contain '..': {path!r}")
+    return path
+
+
 
 @contextmanager
 def _conn():
@@ -274,6 +284,8 @@ def get_disks(name: str) -> List[dict]:
 
 def attach_disk(name: str, path: str | None, size_gb: float | None):
     _check_name(name)
+    if path is not None:
+        _check_path(path)
     if path is None and size_gb is not None:
         path = f"/var/lib/libvirt/images/{name}-{os.urandom(4).hex()}.qcow2"
         subprocess.run(["qemu-img", "create", "-f", "qcow2", path, f"{size_gb}G"], check=True)
@@ -666,6 +678,8 @@ def detach_usb(name: str, usb_id: str):
     if len(parts) != 2:
         raise ValueError(f"Invalid USB id format: {usb_id!r}, expected vendor_id:product_id")
     vendor_id, product_id = parts
+    vendor_id = _check_hex_id(vendor_id, "vendor_id")
+    product_id = _check_hex_id(product_id, "product_id")
     with _conn() as conn:
         d = conn.lookupByName(name)
         xml = etree.fromstring(d.XMLDesc())

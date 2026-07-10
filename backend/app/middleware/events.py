@@ -13,6 +13,10 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 _EVENTS_FILE = os.path.join(_DATA_DIR, "events.jsonl")
 _lock = threading.Lock()
 
+# Rotate when the file exceeds this size; keep only the newest _KEEP_LINES lines.
+_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_KEEP_LINES = 5_000
+
 
 class EventLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -21,6 +25,14 @@ class EventLogMiddleware(BaseHTTPMiddleware):
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _append_event, request, response.status_code)
         return response
+
+
+def _rotate_events_file():
+    """Trim the events file to _KEEP_LINES most-recent lines. Called under _lock."""
+    with open(_EVENTS_FILE) as f:
+        lines = f.readlines()
+    with open(_EVENTS_FILE, "w") as f:
+        f.writelines(lines[-_KEEP_LINES:])
 
 
 def _append_event(request: Request, status_code: int):
@@ -41,12 +53,15 @@ def _append_event(request: Request, status_code: int):
     with _lock:
         with open(_EVENTS_FILE, "a") as f:
             f.write(line)
+        if os.path.getsize(_EVENTS_FILE) > _MAX_BYTES:
+            _rotate_events_file()
 
 
 def read_events(page: int = 1, page_size: int = 50, vm_name: str = "") -> dict:
     try:
-        with open(_EVENTS_FILE) as f:
-            lines = [l for l in f.readlines() if l.strip()]
+        with _lock:
+            with open(_EVENTS_FILE) as f:
+                lines = [l for l in f.readlines() if l.strip()]
     except FileNotFoundError:
         lines = []
     events = []

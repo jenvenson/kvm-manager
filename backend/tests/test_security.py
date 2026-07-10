@@ -66,3 +66,72 @@ def test_update_vm_xml_accepts_valid_domain():
     # Well-formed <domain> passes validation and reaches the (faked) connection
     # without raising.
     svc.update_vm_xml("vm1", "<domain type='kvm'><name>vm1</name></domain>")
+
+
+# ---------------------------------------------------------------------------
+# attach_disk: _check_path must reject unsafe paths before touching libvirt
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path", [
+    "/var/lib/libvirt/images/good.qcow2",
+    "/data/vms/my-disk.img",
+    "/tmp/test.raw",
+])
+def test_check_path_accepts_absolute_paths(path):
+    assert svc._check_path(path) == path
+
+
+@pytest.mark.parametrize("path", [
+    "relative/path.qcow2",
+    "disk.img",
+    "./local.qcow2",
+])
+def test_check_path_rejects_relative_paths(path):
+    with pytest.raises(ValueError, match="absolute"):
+        svc._check_path(path)
+
+
+@pytest.mark.parametrize("path", [
+    "/var/lib/../etc/passwd",
+    "/tmp/../root/secret",
+    "/data/../../etc/shadow",
+])
+def test_check_path_rejects_traversal(path):
+    with pytest.raises(ValueError, match=r"\.\.|traversal"):
+        svc._check_path(path)
+
+
+def test_check_path_rejects_non_string():
+    with pytest.raises(ValueError):
+        svc._check_path(None)  # type: ignore[arg-type]
+
+
+def test_attach_disk_rejects_traversal_path():
+    """attach_disk must call _check_path before reaching libvirt."""
+    with pytest.raises(ValueError):
+        svc.attach_disk("vm1", "/var/lib/../etc/passwd", None)
+
+
+def test_attach_disk_rejects_relative_path():
+    with pytest.raises(ValueError):
+        svc.attach_disk("vm1", "relative/disk.qcow2", None)
+
+
+# ---------------------------------------------------------------------------
+# detach_usb: each half of vendor_id:product_id must pass _check_hex_id
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("usb_id", [
+    "xyz:1234",
+    "1234:xyz",
+    "1d6b; rm:1234",
+    "1234:1d6b; rm",
+    "12345:abcd",
+    "abcd:12345",
+    ":1234",
+    "1234:",
+])
+def test_detach_usb_rejects_invalid_hex_ids(usb_id):
+    """detach_usb must validate both parts before touching libvirt."""
+    with pytest.raises(ValueError):
+        svc.detach_usb("vm1", usb_id)
