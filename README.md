@@ -144,6 +144,60 @@ networking) can reach the port. Because the raw VNC port (5900+) is then open on
 all host interfaces, keep it blocked from untrusted networks at the firewall —
 only the reverse-proxy port (usually 80/443) should be publicly reachable.
 
+## QEMU guest agent
+
+The panel reads IPs, OS type, and hostname via the QEMU guest agent channel.
+The feature is optional — the VM still works without it, but those fields will
+be blank.
+
+### Guest XML prerequisite
+
+The domain must have a `virtio-serial` channel device. Check with:
+
+```bash
+virsh dumpxml <vm-name> | grep -A2 'guest_agent'
+```
+
+If nothing is returned, add the following inside `<devices>` (via
+`virsh edit <vm-name>`) and cold-boot the guest:
+
+```xml
+<channel type='unix'>
+  <target type='virtio' name='org.qemu.guest_agent.0'/>
+</channel>
+```
+
+### Linux guests
+
+| Distro | Install command |
+|--------|-----------------|
+| Ubuntu / Debian | `apt install -y qemu-guest-agent` |
+| RHEL / CentOS / Rocky | `yum install -y qemu-guest-agent` |
+| Fedora | `dnf install -y qemu-guest-agent` |
+| Arch Linux | `pacman -S qemu-guest-agent` |
+
+Then enable and start the service:
+
+```bash
+systemctl enable --now qemu-guest-agent
+```
+
+### Windows guests
+
+Install the **VirtIO drivers ISO** — it bundles the QEMU Guest Agent MSI:
+
+1. Download the latest ISO from the [Fedora VirtIO Drivers page](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/).
+2. Mount the ISO inside the Windows guest.
+3. Run `guest-agent\qemu-ga-x86_64.msi` (or the `i386` variant for 32-bit).
+4. The `QEMU Guest Agent` Windows service starts automatically.
+
+### Verify
+
+```bash
+virsh qemu-agent-command <vm-name> '{"execute":"guest-ping"}'
+# expected: {"return":{}}
+```
+
 ## Authentication
 
 Login (`POST /api/login`) exchanges the admin credentials for an HMAC-SHA256
@@ -210,6 +264,49 @@ export KVM_HOST=192.168.1.10 KVM_USER=ubuntu
 ```
 
 After the script finishes, open `http://<KVM host IP>/kvm/` in your browser.
+
+## Nginx reverse proxy
+
+If you front the stack with Nginx, add the following to your `http` block once
+(needed for WebSocket upgrade headers):
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+Then add a `server` block (or merge into an existing one):
+
+```nginx
+location /kvm/ {
+    proxy_pass http://127.0.0.1:18080/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_connect_timeout 900;
+    proxy_send_timeout    900;
+    proxy_read_timeout    900;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    location /kvm/novnc/ {
+        proxy_pass http://127.0.0.1:16080/;
+        proxy_http_version 1.1;
+        proxy_set_header Host       $host;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+Replace `127.0.0.1` with the actual host if Nginx and the containers run on
+different machines. Port `18080` is the `kvm-app` container; port `16080` is
+the `kvm-novnc` container.
 
 ## License
 

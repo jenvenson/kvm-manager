@@ -137,6 +137,59 @@ virsh dumpxml <虚拟机名> | grep '<graphics'
 能连到该端口。由于此时裸 VNC 端口（5900 起）会在宿主机所有网卡上开放，请在防火墙
 层面阻止不受信任网络访问它 —— 对外只应放行反向代理端口（通常是 80/443）。
 
+## QEMU guest agent
+
+管理面板通过 QEMU guest agent 通道读取虚拟机的 IP、操作系统类型和主机名。
+该功能是可选的 —— 没有它虚拟机仍然可以正常使用，但这些字段会显示为空。
+
+### Guest XML 前置条件
+
+Domain 里必须有一个 `virtio-serial` channel 设备。可用以下命令检查：
+
+```bash
+virsh dumpxml <虚拟机名> | grep -A2 'guest_agent'
+```
+
+如果没有输出，通过 `virsh edit <虚拟机名>` 在 `<devices>` 里添加以下内容，
+然后冷启动虚拟机：
+
+```xml
+<channel type='unix'>
+  <target type='virtio' name='org.qemu.guest_agent.0'/>
+</channel>
+```
+
+### Linux 客户机
+
+| 发行版 | 安装命令 |
+|--------|---------|
+| Ubuntu / Debian | `apt install -y qemu-guest-agent` |
+| RHEL / CentOS / Rocky | `yum install -y qemu-guest-agent` |
+| Fedora | `dnf install -y qemu-guest-agent` |
+| Arch Linux | `pacman -S qemu-guest-agent` |
+
+然后启用并启动服务：
+
+```bash
+systemctl enable --now qemu-guest-agent
+```
+
+### Windows 客户机
+
+安装 **VirtIO 驱动 ISO** —— 其中包含 QEMU Guest Agent 的 MSI 安装包：
+
+1. 从 [Fedora VirtIO 驱动页面](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/) 下载最新 ISO。
+2. 在 Windows 客户机内挂载该 ISO。
+3. 运行 `guest-agent\qemu-ga-x86_64.msi`（32 位系统选 `i386` 版本）。
+4. `QEMU Guest Agent` Windows 服务会自动启动。
+
+### 验证
+
+```bash
+virsh qemu-agent-command <虚拟机名> '{"execute":"guest-ping"}'
+# 期望输出：{"return":{}}
+```
+
 ## 认证
 
 登录（`POST /api/login`）用管理员凭据换取一个 HMAC-SHA256 签名令牌。每一个
@@ -200,6 +253,47 @@ export KVM_HOST=192.168.1.10 KVM_USER=ubuntu
 ```
 
 脚本执行完毕后，在浏览器中打开 `http://<KVM 宿主机 IP>/kvm/`。
+
+## Nginx 反向代理
+
+如果你用 Nginx 作为前端，在 `http` 块里加一次以下配置（WebSocket 升级头所需）：
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+然后在对应的 `server` 块中（或并入现有块）添加：
+
+```nginx
+location /kvm/ {
+    proxy_pass http://127.0.0.1:18080/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_connect_timeout 900;
+    proxy_send_timeout    900;
+    proxy_read_timeout    900;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    location /kvm/novnc/ {
+        proxy_pass http://127.0.0.1:16080/;
+        proxy_http_version 1.1;
+        proxy_set_header Host       $host;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+如果 Nginx 和容器不在同一台机器上，请将 `127.0.0.1` 替换为实际宿主机地址。
+端口 `18080` 对应 `kvm-app` 容器，端口 `16080` 对应 `kvm-novnc` 容器。
 
 ## 许可证
 
